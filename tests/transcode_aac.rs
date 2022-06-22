@@ -20,7 +20,7 @@ fn open_input_file(input_file: &CStr) -> Result<(AVFormatContextInput, AVCodecCo
 
     let mut decode_context = AVCodecContext::new(&decoder);
     decode_context.apply_codecpar(
-        input_format_context
+        &input_format_context
             .streams()
             .get(audio_index)
             .unwrap()
@@ -181,7 +181,7 @@ fn transcode_aac(input_file: &CStr, output_file: &CStr) -> Result<()> {
     let mut fifo = AVAudioFifo::new(encode_context.sample_fmt, encode_context.channels, 1);
 
     // Write the header of the output file container.
-    output_format_context.write_header()?;
+    output_format_context.write_header(&mut None)?;
 
     let output_nb_sample = encode_context.frame_size;
 
@@ -255,11 +255,11 @@ fn transcode_aac(input_file: &CStr, output_file: &CStr) -> Result<()> {
 }
 
 #[test]
-fn transcode_aac_test() {
+fn transcode_aac_test0() {
     std::fs::create_dir_all("tests/output/transcode_aac/").unwrap();
     transcode_aac(
-        cstr!("tests/assets/audios/sample1.aac"),
-        cstr!("tests/output/transcode_aac/output.aac"),
+        cstr!("tests/assets/audios/sample1_short.aac"),
+        cstr!("tests/output/transcode_aac/output_short.aac"),
     )
     .unwrap();
 }

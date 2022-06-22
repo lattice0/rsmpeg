@@ -51,7 +51,7 @@ impl AVFormatContextInput {
 
         unsafe { ffi::avformat_find_stream_info(context.as_mut_ptr(), ptr::null_mut()) }
             .upgrade()
-            .map_err(|_| RsmpegError::FindStreamInfoError)?;
+            .map_err(RsmpegError::FindStreamInfoError)?;
 
         Ok(context)
     }
@@ -97,7 +97,7 @@ impl AVFormatContextInput {
             ffi::avformat_find_stream_info(input_format_context.as_mut_ptr(), ptr::null_mut())
         }
         .upgrade()
-        .map_err(|_| RsmpegError::FindStreamInfoError)?;
+        .map_err(RsmpegError::FindStreamInfoError)?;
 
         Ok(input_format_context)
     }
@@ -215,7 +215,7 @@ impl AVFormatContextOutput {
             )
         }
         .upgrade()
-        .map_err(|_| RsmpegError::OpenOutputError)?;
+        .map_err(RsmpegError::OpenOutputError)?;
 
         let mut output_format_context =
             unsafe { Self::from_raw(NonNull::new(output_format_context).unwrap()) };
@@ -228,7 +228,7 @@ impl AVFormatContextOutput {
         //
         // For safeness, we don't use the user the given AVIOContext even if the
         // caller provides one.
-        if unsafe { *output_format_context.oformat }.flags & ffi::AVFMT_NOFILE as i32 == 0 {
+        if output_format_context.oformat().flags & ffi::AVFMT_NOFILE as i32 == 0 {
             // If user provides us an `AVIOCustomContext`, use it, or we create a default one.
             let mut io_context = match io_context {
                 Some(x) => x,
@@ -250,10 +250,25 @@ impl AVFormatContextOutput {
 
     /// Allocate the stream private data and write the stream header to an
     /// output media file.
-    pub fn write_header(&mut self) -> Result<()> {
-        unsafe { ffi::avformat_write_header(self.as_mut_ptr(), ptr::null_mut()) }
+    ///
+    /// - `options`: An [`AVDictionary`] filled with [`AVFormatContextInput`]
+    ///     and muxer-private options. On return this parameter will be replaced
+    ///     with a dict containing options that were not found. Set this to `None`
+    ///     if it's not needed.
+    pub fn write_header(&mut self, dict: &mut Option<AVDictionary>) -> Result<()> {
+        let mut dict_ptr = dict
+            .take()
+            .map(|x| x.into_raw().as_ptr())
+            .unwrap_or_else(ptr::null_mut);
+
+        let result = unsafe { ffi::avformat_write_header(self.as_mut_ptr(), &mut dict_ptr as _) };
+
+        // Move back the ownership if not consumed.
+        *dict = dict_ptr
             .upgrade()
-            .map_err(RsmpegError::WriteHeaderError)?;
+            .map(|x| unsafe { AVDictionary::from_raw(x) });
+
+        result.upgrade().map_err(RsmpegError::WriteHeaderError)?;
 
         Ok(())
     }
@@ -263,7 +278,7 @@ impl AVFormatContextOutput {
     pub fn write_trailer(&mut self) -> Result<()> {
         unsafe { ffi::av_write_trailer(self.as_mut_ptr()) }
             .upgrade()
-            .map_err(|_| RsmpegError::WriteTrailerError)?;
+            .map_err(RsmpegError::WriteTrailerError)?;
         Ok(())
     }
 
@@ -288,7 +303,7 @@ impl AVFormatContextOutput {
     pub fn write_frame(&mut self, packet: &mut AVPacket) -> Result<()> {
         unsafe { ffi::av_write_frame(self.as_mut_ptr(), packet.as_mut_ptr()) }
             .upgrade()
-            .map_err(|_| RsmpegError::WriteFrameError)?;
+            .map_err(RsmpegError::WriteFrameError)?;
         Ok(())
     }
 
@@ -316,11 +331,19 @@ impl<'stream> AVFormatContextOutput {
         }
     }
 
-    /// Get [`AVOutputFormatRef`] in the [`AVFormatContextOutput`].
-    pub fn oformat(&'stream self) -> AVOutputFormatRef<'stream> {
+    /// Get [`AVOutputFormat`] from the [`AVFormatContextOutput`].
+    pub fn oformat(&self) -> AVOutputFormatRef<'static> {
         // From the implementation of FFmpeg's `avformat_alloc_output_context2`,
         // we can be sure that `oformat` won't be null when muxing.
         unsafe { AVOutputFormatRef::from_raw(NonNull::new(self.oformat as *mut _).unwrap()) }
+    }
+
+    /// Set [`AVOutputFormat`] in the [`AVFormatContextOutput`].
+    pub fn set_oformat(&mut self, format: AVOutputFormatRef<'static>) {
+        // `as _` is for compatibility with older FFmpeg versions(< 5.0)
+        unsafe {
+            self.deref_mut().oformat = format.as_ptr() as _;
+        }
     }
 
     /// Add a new stream to a media file, should be called by the user before
@@ -355,6 +378,25 @@ impl Drop for AVFormatContextOutput {
 wrap_ref!(AVInputFormat: ffi::AVInputFormat);
 
 wrap_ref!(AVOutputFormat: ffi::AVOutputFormat);
+
+impl AVOutputFormat {
+    /// Return the output format in the list of registered output formats which
+    /// best matches the provided parameters, or return NULL if there is no
+    /// match.
+    pub fn guess_format(
+        short_name: Option<&CStr>,
+        filename: Option<&CStr>,
+        mime_type: Option<&CStr>,
+    ) -> Option<AVOutputFormatRef<'static>> {
+        let short_name = short_name.map(|x| x.as_ptr()).unwrap_or_else(ptr::null);
+        let filename = filename.map(|x| x.as_ptr()).unwrap_or_else(ptr::null);
+        let mime_type = mime_type.map(|x| x.as_ptr()).unwrap_or_else(ptr::null);
+
+        unsafe { ffi::av_guess_format(short_name, filename, mime_type) }
+            .upgrade()
+            .map(|x| unsafe { AVOutputFormatRef::from_raw(x) })
+    }
+}
 
 wrap_ref_mut!(AVStream: ffi::AVStream);
 settable!(AVStream {

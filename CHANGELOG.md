@@ -1,3 +1,32 @@
+## 0.11.0
+
+- Bump `rusty_ffmpeg` version to `0.10.0`
+
+## 0.10.0
+
+- Added methods:
+    - `AVFormatContextOutput::set_oformat`
+    - `AVOutputFormat::guess_format`
+    - `SwrContext::convert_frame`
+    - `SwrContext::get_delay`
+
+- `AVCodecContext::apply_codecpar` now accepts `&AVCodecParameters`
+
+- `RsmpegError`:
+    - Remove unused error variants
+    - Add `RsmpegError::raw_error` for raw FFmpeg error code extraction.
+
+## 0.9.0
+
+- Enable metadata dict specifying in `write_header`.
+
+- Change `get_bytes_per_sample`'s return-type from `Option<i32>` to `Option<usize>`.
+
+- Make `AVCodecParserContext::parse_packet` respect packet's pts, dts and pos.
+
+- Add `decode_audio` test, make existing tests robuster and faster.
+
+
 ## 0.8.2
 
 - More field setter methods for `AVPacket`.
